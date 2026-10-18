@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# EZDocker — commandes d'administration de la machine.
+set -euo pipefail
+
+DIR="${EZD_DIR:-/opt/ezdocker}"
+BRANCH="${EZD_BRANCH:-main}"
+
+[[ -d "$DIR" ]] || { echo "EZDocker n'est pas installé dans $DIR" >&2; exit 1; }
+cd "$DIR"
+
+need_root() { [[ $EUID -eq 0 ]] || { echo "Cette commande doit être lancée en root (sudo ezdocker $1)." >&2; exit 1; }; }
+panel_port() { grep -E '^EZD_PORT=' .env 2>/dev/null | cut -d= -f2 || echo 80; }
+
+cmd="${1:-help}"
+case "$cmd" in
+  status)
+    docker compose ps
+    echo
+    curl -fsS "http://127.0.0.1:$(panel_port)/api/health" && echo || echo "Le panel ne répond pas."
+    echo
+    docker ps --filter label=ezdocker.site --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+    ;;
+  logs)
+    docker compose logs -f --tail=200 ezdocker
+    ;;
+  start)
+    need_root "$cmd"; docker compose up -d
+    ;;
+  stop)
+    need_root "$cmd"; docker compose stop
+    echo "Panel arrêté. Les sites restent en ligne mais leurs statistiques et ports publics sont suspendus."
+    ;;
+  restart)
+    need_root "$cmd"; docker compose up -d --force-recreate
+    ;;
+  update)
+    need_root "$cmd"
+    git fetch --depth 1 origin "$BRANCH" -q
+    git reset --hard FETCH_HEAD -q
+    docker compose up -d --build --remove-orphans
+    install -m 0755 scripts/ezdocker /usr/local/bin/ezdocker
+    docker image prune -f >/dev/null 2>&1 || true
+    echo "EZDocker mis à jour ($(git rev-parse --short HEAD))."
+    ;;
+  reset-admin-password)
+    need_root "$cmd"
+    docker compose exec -T ezdocker node --disable-warning=ExperimentalWarning src/cli.js reset-admin "${2:-}"
+    ;;
+  backup)
+    need_root "$cmd"
+    out="${2:-$PWD/ezdocker-backup-$(date +%Y%m%d-%H%M%S).tar.gz}"
+    docker compose stop ezdocker >/dev/null
+    tar -czf "$out" -C "$DIR" data .env
+    docker compose start ezdocker >/dev/null
+    echo "Sauvegarde : $out"
+    ;;
+  uninstall)
+    need_root "$cmd"
+    echo "ATTENTION : supprime EZDocker, TOUS les sites déployés, leurs images et les données ($DIR)."
+    read -r -p "Tapez « supprimer » pour confirmer : " answer </dev/tty
+    [[ "$answer" == "supprimer" ]] || { echo "Annulé."; exit 1; }
+    docker compose down --rmi local || true
+    ids=$(docker ps -aq --filter label=ezdocker.site); [[ -n "$ids" ]] && docker rm -f $ids >/dev/null
+    imgs=$(docker images -q --filter label=ezdocker.site); [[ -n "$imgs" ]] && docker rmi -f $imgs >/dev/null || true
+    docker network rm ezdocker-sites >/dev/null 2>&1 || true
+    cd / && rm -rf "$DIR" && rm -f /usr/local/bin/ezdocker
+    echo "EZDocker a été désinstallé (Docker est conservé)."
+    ;;
+  help|*)
+    cat <<EOF
+Usage : ezdocker <commande>
+
+  status                 État du panel et des sites
+  logs                   Journal du panel (Ctrl+C pour quitter)
+  start | stop | restart Contrôle du panel
+  update                 Met à jour EZDocker depuis GitHub
+  reset-admin-password   Génère un nouveau mot de passe super admin (ou: reset-admin-password <mdp>)
+  backup [fichier]       Sauvegarde la base et la configuration
+  uninstall              Supprime EZDocker et tous les sites
+EOF
+    ;;
+esac

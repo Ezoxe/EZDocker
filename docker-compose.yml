@@ -1,0 +1,18 @@
+services:
+  ezdocker:
+    build: .
+    image: ezdocker:local
+    container_name: ezdocker
+    restart: unless-stopped
+    # Host network: EZDocker opens one public port per site and reaches
+    # site containers on 127.0.0.1.
+    network_mode: host
+    env_file: .env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

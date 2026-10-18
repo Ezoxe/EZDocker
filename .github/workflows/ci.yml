@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    name: Tests unitaires
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: ShellCheck
+        run: shellcheck -S error install.sh scripts/ezdocker test/e2e.sh
+
+  e2e:
+    name: Installation Debian/Ubuntu + scénario complet
+    runs-on: ubuntu-latest
+    needs: unit
+    env:
+      EZD_PORT: 8080
+      EZD_ADMIN_PASSWORD: ci-admin-password
+    steps:
+      - uses: actions/checkout@v4
+      - name: install.sh
+        run: sudo -E EZD_NONINTERACTIVE=1 EZD_SOURCE="$GITHUB_WORKSPACE" EZD_PUBLIC_HOST=127.0.0.1 bash install.sh
+      - name: Scénario e2e
+        run: bash test/e2e.sh
+      - name: Journal EZDocker
+        if: always()
+        run: docker logs ezdocker --tail 200 || true
