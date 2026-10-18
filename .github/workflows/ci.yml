@@ -11,8 +11,8 @@ jobs:
     name: Tests unitaires
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
@@ -21,17 +21,49 @@ jobs:
       - name: ShellCheck
         run: shellcheck -S error install.sh scripts/ezdocker test/e2e.sh
 
-  e2e:
-    name: Installation Debian/Ubuntu + scénario complet
+  ubuntu:
+    name: Installation Ubuntu + scénario complet
     runs-on: ubuntu-latest
     needs: unit
     env:
       EZD_PORT: 8080
       EZD_ADMIN_PASSWORD: ci-admin-password
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: install.sh
         run: sudo -E EZD_NONINTERACTIVE=1 EZD_SOURCE="$GITHUB_WORKSPACE" EZD_PUBLIC_HOST=127.0.0.1 bash install.sh
+      - name: Scénario e2e
+        run: bash test/e2e.sh
+      - name: Journal EZDocker
+        if: always()
+        run: docker logs ezdocker --tail 200 || true
+
+  debian:
+    name: Installation Debian ${{ matrix.debian }} + scénario complet
+    runs-on: ubuntu-latest
+    needs: unit
+    strategy:
+      fail-fast: false
+      matrix:
+        debian: ['12', '13']
+    env:
+      EZD_PORT: 8080
+      EZD_ADMIN_PASSWORD: ci-admin-password
+    steps:
+      - uses: actions/checkout@v5
+      # install.sh runs inside a pristine Debian image (it installs Docker CE from the
+      # official Debian repository) and drives the runner's Docker daemon via its socket.
+      - name: install.sh sur debian:${{ matrix.debian }}
+        run: |
+          sudo mkdir -p /opt/ezdocker
+          docker run --rm --network host \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v /opt/ezdocker:/opt/ezdocker \
+            -v "$GITHUB_WORKSPACE":/src:ro \
+            -e EZD_NONINTERACTIVE=1 -e EZD_SOURCE=/src -e EZD_PUBLIC_HOST=127.0.0.1 \
+            -e EZD_PORT -e EZD_ADMIN_PASSWORD \
+            debian:${{ matrix.debian }} \
+            bash -c 'printf "#!/bin/sh\nexit 101\n" > /usr/sbin/policy-rc.d && chmod +x /usr/sbin/policy-rc.d && bash /src/install.sh'
       - name: Scénario e2e
         run: bash test/e2e.sh
       - name: Journal EZDocker

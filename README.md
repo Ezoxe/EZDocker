@@ -12,7 +12,22 @@ EZDocker la construit, la lance et l'expose automatiquement sur un port libre. M
 ![Node](https://img.shields.io/badge/Node.js-24-339933?logo=node.js)
 ![Licence](https://img.shields.io/badge/licence-MIT-blue)
 
+<img src="docs/screenshots/dashboard.png" alt="Tableau de bord EZDocker" width="820">
+
 </div>
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/stats.png" alt="Statistiques d'un site"></td>
+    <td><img src="docs/screenshots/deploiement.png" alt="Journal de déploiement"></td>
+    <td><img src="docs/screenshots/notifications.png" alt="Webhook et SMTP"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Statistiques par site</sub></td>
+    <td align="center"><sub>Déploiement suivi en direct</sub></td>
+    <td align="center"><sub>Webhook & e-mail pour vos systèmes</sub></td>
+  </tr>
+</table>
 
 ---
 

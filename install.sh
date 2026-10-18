@@ -136,7 +136,13 @@ if ! command -v docker >/dev/null 2>&1; then
 else
   ok "Docker déjà présent ($(docker --version | sed 's/Docker version //'))"
 fi
-systemctl enable --now docker >/dev/null 2>&1 || service docker start >/dev/null 2>&1 || true
+if command -v systemctl >/dev/null 2>&1 && [[ -d /run/systemd/system ]]; then
+  systemctl enable --now docker >/dev/null 2>&1 || true
+fi
+if ! docker info >/dev/null 2>&1; then
+  service docker start >/dev/null 2>&1 || true
+  sleep 3
+fi
 docker info >/dev/null 2>&1 || fail "Le service Docker ne répond pas."
 if ! docker compose version >/dev/null 2>&1; then
   apt-get install -y -qq docker-compose-plugin >/dev/null 2>&1 || fail "Le plugin « docker compose » est introuvable. Installez docker-compose-plugin."

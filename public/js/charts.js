@@ -42,10 +42,13 @@ export function barChart(bars, { line = null, color = 'url(#barGrad)', errorColo
   const pad = { l: 38, r: 8, t: 12, b: 26 };
   const iw = W - pad.l - pad.r;
   const ih = H - pad.t - pad.b;
-  const max = niceMax(Math.max(1, ...bars.map((b) => b.value), ...(line || [])));
+  const max = niceMax(Math.max(1, ...bars.map((b) => b.value)));
+  // The line has its own scale (e.g. visitors vs requests) so it stays readable.
+  const lineMax = Math.max(1, ...(line || [])) / 0.85;
   const slot = iw / Math.max(1, bars.length);
   const bw = Math.max(3, Math.min(34, slot * 0.62));
   const y = (v) => pad.t + ih - (v / max) * ih;
+  const ly = (v) => pad.t + ih - (v / lineMax) * ih;
 
   let out = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img">
     <defs><linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#818cf8"/><stop offset="1" stop-color="#6366f1" stop-opacity=".55"/></linearGradient></defs>`;
@@ -66,10 +69,10 @@ export function barChart(bars, { line = null, color = 'url(#barGrad)', errorColo
     if (i % labelEvery === 0) out += `<text x="${x + bw / 2}" y="${H - 8}" text-anchor="middle">${esc(b.label)}</text>`;
   });
   if (line && line.length) {
-    const pts = line.map((v, i) => `${pad.l + slot * i + slot / 2},${y(v)}`);
+    const pts = line.map((v, i) => `${pad.l + slot * i + slot / 2},${ly(v)}`);
     out += `<polyline points="${pts.join(' ')}" fill="none" stroke="${lineColor}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" class="spark-line"/>`;
     line.forEach((v, i) => {
-      out += `<circle cx="${pad.l + slot * i + slot / 2}" cy="${y(v)}" r="3.5" fill="#0b0f1a" stroke="${lineColor}" stroke-width="2"><title>${esc(fmtNumber(v))}</title></circle>`;
+      out += `<circle cx="${pad.l + slot * i + slot / 2}" cy="${ly(v)}" r="3.5" fill="#0b0f1a" stroke="${lineColor}" stroke-width="2"><title>${esc(fmtNumber(v))}</title></circle>`;
     });
   }
   out += '</svg>';
