@@ -108,6 +108,10 @@ mon-site.zip
 - L'application doit écouter sur le port déclaré par `EXPOSE` (sinon `80`, ou le port défini dans les paramètres du site).
 - La variable d'environnement `PORT` est fournie automatiquement au conteneur.
 - Un `.dockerignore` est respecté. Les variables d'environnement se règlent dans **Paramètres** du site.
+- **Données persistantes** : chaque dossier déclaré par `VOLUME` dans le `Dockerfile` (par exemple `VOLUME ["/data"]`)
+  est stocké dans un volume Docker propre au site (`ezd-site-<id>-<chemin>`). Il est remonté à chaque mise à jour
+  et à chaque restauration : bases SQLite, fichiers déposés… survivent aux nouveaux zips. Il n'est supprimé
+  qu'avec le site.
 
 Un exemple prêt à l'emploi est téléchargeable depuis le panel (**Exemple .zip**) et dans [`examples/hello-site`](examples/hello-site).
 

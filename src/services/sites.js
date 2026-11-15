@@ -241,6 +241,8 @@ async function remove(site, actor) {
       }
     }
     for (const img of await docker.listSiteImages(site.id)) await docker.removeImage(img.Id);
+    // Données persistantes du site (volumes déclarés par son Dockerfile) : supprimées avec lui.
+    for (const vol of await docker.listSiteVolumes(site.id)) await docker.removeVolume(vol.Name);
   } catch (err) {
     if (site.container_id) throw new HttpError(503, `Docker injoignable : ${err.message}`);
   }

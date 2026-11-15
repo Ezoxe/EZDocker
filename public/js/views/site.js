@@ -380,7 +380,7 @@ async function settingsTab(ctx, site, data, me) {
       $('#delete-site', root).addEventListener('click', async () => {
         const ok = await confirmDialog({
           title: `Supprimer « ${site.name} » ?`,
-          text: 'Cette action est définitive.',
+          text: 'Cette action est définitive : conteneur, images, statistiques et données persistantes du site (volumes) seront effacés.',
           confirmLabel: 'Supprimer définitivement',
           danger: true,
           typeToConfirm: site.slug,

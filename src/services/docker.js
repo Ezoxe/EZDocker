@@ -6,6 +6,7 @@ const { stripAnsi } = require('../util');
 const NETWORK = 'ezdocker-sites';
 const LABEL_SITE = 'ezdocker.site';
 const LABEL_DEPLOYMENT = 'ezdocker.deployment';
+const LABEL_VOLUME_PATH = 'ezdocker.volume.path';
 
 const docker = new Docker({ socketPath: config.dockerSocket });
 
@@ -118,6 +119,46 @@ async function imageExposedPort(tag) {
   return ports[0] || null;
 }
 
+/**
+ * Persistent data: every VOLUME declared by the site's Dockerfile is backed by a named volume owned
+ * by the site (`ezd-site-<id>-<path>`). The same volume is mounted again by every new deployment,
+ * so databases and uploads survive updates and rollbacks; it is removed only with the site.
+ */
+function volumeName(siteId, target) {
+  const slug = String(target).replace(/^\/+|\/+$/g, '').replace(/[^a-zA-Z0-9_.-]+/g, '_').slice(0, 60) || 'root';
+  return `ezd-site-${siteId}-${slug}`;
+}
+
+/** Absolute paths declared with VOLUME in the image, sorted. */
+async function imageVolumes(tag) {
+  const info = await docker.getImage(tag).inspect();
+  return Object.keys((info.Config && info.Config.Volumes) || {})
+    .filter((p) => p.startsWith('/') && !p.includes('..'))
+    .sort();
+}
+
+async function ensureSiteVolume(siteId, target) {
+  const name = volumeName(siteId, target);
+  try {
+    await docker.getVolume(name).inspect();
+  } catch (err) {
+    if (err.statusCode !== 404) throw err;
+    await docker.createVolume({ Name: name, Labels: { [LABEL_SITE]: String(siteId), [LABEL_VOLUME_PATH]: target } });
+  }
+  return { Type: 'volume', Source: name, Target: target };
+}
+
+async function listSiteVolumes(siteId) {
+  const res = await docker.listVolumes({ filters: { label: [`${LABEL_SITE}=${siteId}`] } });
+  return (res && res.Volumes) || [];
+}
+
+async function removeVolume(name) {
+  await docker.getVolume(name).remove({ force: true }).catch((err) => {
+    if (err.statusCode !== 404) throw err;
+  });
+}
+
 async function inspectContainer(idOrName) {
   try {
     return await docker.getContainer(idOrName).inspect();
@@ -129,6 +170,8 @@ async function inspectContainer(idOrName) {
 
 async function createSiteContainer({ name, image, containerPort, internalPort, env, memoryMb, cpus, siteId, deploymentId }) {
   const memory = Math.max(16, memoryMb) * 1024 * 1024;
+  const mounts = [];
+  for (const target of await imageVolumes(image)) mounts.push(await ensureSiteVolume(siteId, target));
   const container = await docker.createContainer({
     name,
     Image: image,
@@ -137,6 +180,7 @@ async function createSiteContainer({ name, image, containerPort, internalPort, e
     ExposedPorts: { [`${containerPort}/tcp`]: {} },
     HostConfig: {
       PortBindings: { [`${containerPort}/tcp`]: [{ HostIp: '127.0.0.1', HostPort: String(internalPort) }] },
+      Mounts: mounts,
       RestartPolicy: { Name: 'unless-stopped' },
       Memory: memory,
       MemorySwap: memory,
@@ -260,6 +304,10 @@ module.exports = {
   listSiteImages,
   removeImage,
   listSiteContainers,
+  volumeName,
+  imageVolumes,
+  listSiteVolumes,
+  removeVolume,
   getEvents,
   demux,
 };

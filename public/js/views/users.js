@@ -130,7 +130,7 @@ export async function usersView(ctx) {
         const u = byId(b.dataset.delete);
         const ok = await confirmDialog({
           title: `Supprimer ${u.username} ?`,
-          text: `Ses ${u.sites_count} site(s) seront aussi supprimés définitivement (conteneurs, images, statistiques).`,
+          text: `Ses ${u.sites_count} site(s) seront aussi supprimés définitivement (conteneurs, images, statistiques, données persistantes).`,
           confirmLabel: 'Supprimer',
           danger: true,
           typeToConfirm: u.username,
