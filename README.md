@@ -269,8 +269,9 @@ La configuration est dans `/opt/ezdocker/.env`, les données dans `/opt/ezdocker
   `no-new-privileges` et redémarrage automatique.
 - Les 3 dernières versions de chaque site sont conservées pour la restauration.
 - Le cache de build Docker inutilisé depuis 72 h est supprimé après chaque déploiement réussi. Si un build
-  échoue faute de place (`no space left on device`), EZDocker vide tout le cache de build et les images
-  orphelines, puis relance le build une fois.
+  échoue faute de place (`no space left on device`), EZDocker vide tout le cache de build, les images
+  orphelines et les anciennes versions du site (seule la version en ligne est gardée), puis relance le
+  build une fois.
 
 ## 🔒 Sécurité
 

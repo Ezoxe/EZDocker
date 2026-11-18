@@ -338,10 +338,13 @@ async function run(depId, actor) {
           await build();
         } catch (err) {
           if (!docker.isNoSpaceError(err)) throw err;
-          // A full disk is usually the build cache of earlier builds: free it once and try again.
-          say('⚠ Disque plein. Nettoyage du cache de build Docker et des images orphelines…');
+          // A full disk is usually the build cache of earlier builds and the versions kept for restore
+          // (once the cache is gone they no longer share layers): keep only the version online, retry once.
+          say('⚠ Disque plein. Nettoyage du cache de build Docker et des anciennes versions de ce site…');
+          const removed = await removeRestoreImages(site.id, site.image);
           const freed = await docker.pruneBuildSpace();
-          say(`✓ ${formatBytes(freed)} libéré(s). Nouvelle tentative de construction…`);
+          if (removed) say(`✓ ${removed} ancienne(s) version(s) supprimée(s) : leur restauration ne sera plus possible.`);
+          say(`✓ ${formatBytes(freed)} de cache libéré(s). Nouvelle tentative de construction…`);
           await build();
         }
       } catch (err) {
@@ -461,6 +464,17 @@ async function cleanupVersions(siteId) {
 
   // Build cache left by old versions and failed builds; recent entries keep the next builds fast.
   await docker.pruneBuildSpace({ olderThan: BUILD_CACHE_MAX_AGE });
+}
+
+/** Removes the site's images except the one online. Returns how many were removed. */
+async function removeRestoreImages(siteId, onlineImage) {
+  let removed = 0;
+  for (const img of await docker.listSiteImages(siteId)) {
+    if ((img.RepoTags || []).includes(onlineImage)) continue;
+    await docker.removeImage(img.Id);
+    removed++;
+  }
+  return removed;
 }
 
 function formatBytes(bytes) {
