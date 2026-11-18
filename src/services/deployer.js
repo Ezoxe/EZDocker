@@ -20,6 +20,7 @@ const KIND_LABELS = {
 };
 const KEEP_VERSIONS = 3;
 const MAX_LOG = 512 * 1024;
+const BUILD_CACHE_MAX_AGE = '72h';
 
 const queues = new Map(); // siteId -> tail promise
 const pendingPerSite = new Map(); // siteId -> count of queued/running deployments
@@ -326,12 +327,31 @@ async function run(depId, actor) {
       await acquire();
       try {
         say(`Construction de l'image ${image}…`);
-        await docker.buildImage(contextDir, {
-          tag: image,
-          dockerfile,
-          labels: { [docker.LABEL_SITE]: String(site.id), [docker.LABEL_DEPLOYMENT]: String(depId) },
-          onLog: say,
-        });
+        const build = () =>
+          docker.buildImage(contextDir, {
+            tag: image,
+            dockerfile,
+            labels: { [docker.LABEL_SITE]: String(site.id), [docker.LABEL_DEPLOYMENT]: String(depId) },
+            onLog: say,
+          });
+        try {
+          await build();
+        } catch (err) {
+          if (!docker.isNoSpaceError(err)) throw err;
+          // A full disk is usually the build cache of earlier builds: free it once and try again.
+          say('⚠ Disque plein. Nettoyage du cache de build Docker et des images orphelines…');
+          const freed = await docker.pruneBuildSpace();
+          say(`✓ ${formatBytes(freed)} libéré(s). Nouvelle tentative de construction…`);
+          await build();
+        }
+      } catch (err) {
+        if (docker.isNoSpaceError(err)) {
+          throw new Error(
+            `Espace disque insuffisant sur le serveur, même après nettoyage du cache de build. ` +
+            `Libérez de la place (docker system df pour voir l'occupation) ou agrandissez le disque. Détail : ${err.message}`
+          );
+        }
+        throw err;
       } finally {
         release();
         fs.rmSync(srcDir, { recursive: true, force: true });
@@ -438,6 +458,16 @@ async function cleanupVersions(siteId) {
     if (keep.ids.has(id) || live.has(id)) continue;
     fs.rmSync(path.join(base, name), { recursive: true, force: true });
   }
+
+  // Build cache left by old versions and failed builds; recent entries keep the next builds fast.
+  await docker.pruneBuildSpace({ olderThan: BUILD_CACHE_MAX_AGE });
+}
+
+function formatBytes(bytes) {
+  if (!bytes) return '0 o';
+  const units = ['o', 'Ko', 'Mo', 'Go', 'To'];
+  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  return `${(bytes / 1024 ** i).toFixed(i ? 1 : 0).replace('.', ',')} ${units[i]}`;
 }
 
 /** Deployments interrupted by a restart of EZDocker are marked as failed. */
@@ -470,4 +500,5 @@ module.exports = {
   recoverInterrupted,
   cleanupVersions,
   deployDir,
+  formatBytes,
 };

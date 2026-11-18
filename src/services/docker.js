@@ -2,6 +2,7 @@ const fs = require('fs');
 const Docker = require('dockerode');
 const config = require('../config');
 const { stripAnsi } = require('../util');
+const buildlog = require('./buildlog');
 
 const NETWORK = 'ezdocker-sites';
 const LABEL_SITE = 'ezdocker.site';
@@ -46,13 +47,33 @@ async function ensureNetwork() {
   });
 }
 
-function describeBuildEvent(evt) {
-  if (!evt) return '';
+/** Text for one event of the build stream (legacy builder or BuildKit). Errors are reported by the caller. */
+function describeBuildEvent(evt, decoder) {
+  if (!evt || evt.error || evt.errorDetail) return '';
+  if (evt.id === buildlog.TRACE_ID) return decoder ? decoder.push(evt.aux) : '';
+  if (evt.id === buildlog.IMAGE_ID) return '';
   if (evt.stream) return evt.stream;
-  if (evt.error) return `ERREUR : ${evt.error}\n`;
   if (evt.status) return `${evt.status}${evt.progress ? ' ' + evt.progress : ''}${evt.id ? ' ' + evt.id : ''}\n`;
   if (evt.aux && evt.aux.ID) return `Image construite : ${evt.aux.ID}\n`;
   return '';
+}
+
+/** True when Docker failed because the disk holding its data is full. */
+const isNoSpaceError = (err) => /no space left on device|ENOSPC/i.test(String((err && err.message) || err || ''));
+
+function dial(options) {
+  return new Promise((resolve, reject) => docker.modem.dial(options, (err, data) => (err ? reject(err) : resolve(data))));
+}
+
+/**
+ * Frees Docker disk space used by builds: BuildKit cache (all of it, or entries unused for `olderThan`,
+ * e.g. '72h') and dangling images. Returns the reclaimed bytes. Running containers and tagged images are kept.
+ */
+async function pruneBuildSpace({ olderThan = null } = {}) {
+  const options = olderThan ? { filters: { until: [olderThan] } } : { all: true };
+  const cache = await dial({ path: '/build/prune?', method: 'POST', options, statusCodes: { 200: true, 500: 'server error' } }).catch(() => null);
+  const images = await docker.pruneImages({ filters: { dangling: ['true'] } }).catch(() => null);
+  return ((cache && cache.SpaceReclaimed) || 0) + ((images && images.SpaceReclaimed) || 0);
 }
 
 /** Builds an image from a directory. Resolves when the image exists, rejects with the build error. */
@@ -72,17 +93,20 @@ async function buildImage(contextDir, { tag, dockerfile = 'Dockerfile', labels =
 
   try {
     const stream = await docker.buildImage({ context: contextDir, src }, opts);
+    const decoder = buildlog.createDecoder();
     await new Promise((resolve, reject) => {
       let failure = null;
-      docker.followProgress(
+      docker.modem.followProgress(
         stream,
         (err) => {
+          const rest = decoder.flush();
+          if (rest) onLog(stripAnsi(rest));
           if (err) return reject(err);
           if (failure) return reject(new Error(failure));
           resolve();
         },
         (evt) => {
-          const text = describeBuildEvent(evt);
+          const text = describeBuildEvent(evt, decoder);
           if (text) onLog(stripAnsi(text));
           if (evt && (evt.error || evt.errorDetail)) failure = (evt.errorDetail && evt.errorDetail.message) || evt.error;
         }
@@ -290,6 +314,9 @@ module.exports = {
   engineInfo,
   ensureNetwork,
   buildImage,
+  describeBuildEvent,
+  isNoSpaceError,
+  pruneBuildSpace,
   imageExists,
   imageExposedPort,
   inspectContainer,

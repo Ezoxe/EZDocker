@@ -268,6 +268,9 @@ La configuration est dans `/opt/ezdocker/.env`, les données dans `/opt/ezdocker
 - Les conteneurs tournent sur un réseau Docker dédié **sans communication inter-sites**, avec limites RAM / CPU / processus,
   `no-new-privileges` et redémarrage automatique.
 - Les 3 dernières versions de chaque site sont conservées pour la restauration.
+- Le cache de build Docker inutilisé depuis 72 h est supprimé après chaque déploiement réussi. Si un build
+  échoue faute de place (`no space left on device`), EZDocker vide tout le cache de build et les images
+  orphelines, puis relance le build une fois.
 
 ## 🔒 Sécurité
 
