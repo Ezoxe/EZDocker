@@ -52,6 +52,9 @@ test('détection du disque plein', () => {
   assert.ok(docker.isNoSpaceError(new Error('mkdir /app/site/public/vendor: no space left on device')));
   assert.ok(docker.isNoSpaceError('write /var/lib/containerd/…/data: No space left on device'));
   assert.ok(!docker.isNoSpaceError(new Error('failed to solve: exit code 1')));
+  // apk ne renvoie que son code de sortie : le build marque l'erreur quand sa sortie parlait de disque plein.
+  const apk = Object.assign(new Error('process "/bin/sh -c apk add chromium" did not complete successfully: exit code: 7'), { diskFull: true });
+  assert.ok(docker.isNoSpaceError(apk));
 });
 
 test('taille lisible', () => {

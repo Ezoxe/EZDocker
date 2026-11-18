@@ -59,7 +59,8 @@ function describeBuildEvent(evt, decoder) {
 }
 
 /** True when Docker failed because the disk holding its data is full. */
-const isNoSpaceError = (err) => /no space left on device|ENOSPC/i.test(String((err && err.message) || err || ''));
+const isNoSpaceError = (err) =>
+  !!(err && err.diskFull) || /no space left on device|ENOSPC/i.test(String((err && err.message) || err || ''));
 
 function dial(options) {
   return new Promise((resolve, reject) => docker.modem.dial(options, (err, data) => (err ? reject(err) : resolve(data))));
@@ -91,6 +92,15 @@ async function buildImage(contextDir, { tag, dockerfile = 'Dockerfile', labels =
   };
   if (config.builder !== 'legacy') opts.version = '2';
 
+  // A command of the Dockerfile can fail because the disk is full while the final error only gives
+  // its exit code (e.g. apk: "exit code: 7"): the build output tells.
+  let diskFull = false;
+  const emit = (text) => {
+    if (!text) return;
+    if (!diskFull && isNoSpaceError(text)) diskFull = true;
+    onLog(stripAnsi(text));
+  };
+
   try {
     const stream = await docker.buildImage({ context: contextDir, src }, opts);
     const decoder = buildlog.createDecoder();
@@ -99,21 +109,20 @@ async function buildImage(contextDir, { tag, dockerfile = 'Dockerfile', labels =
       docker.modem.followProgress(
         stream,
         (err) => {
-          const rest = decoder.flush();
-          if (rest) onLog(stripAnsi(rest));
+          emit(decoder.flush());
           if (err) return reject(err);
           if (failure) return reject(new Error(failure));
           resolve();
         },
         (evt) => {
-          const text = describeBuildEvent(evt, decoder);
-          if (text) onLog(stripAnsi(text));
+          emit(describeBuildEvent(evt, decoder));
           if (evt && (evt.error || evt.errorDetail)) failure = (evt.errorDetail && evt.errorDetail.message) || evt.error;
         }
       );
     });
   } catch (err) {
     if (controller.signal.aborted) throw new Error(`Build interrompu : délai de ${Math.round(timeoutMs / 60000)} min dépassé.`);
+    if (diskFull && err && typeof err === 'object') err.diskFull = true;
     throw err;
   } finally {
     clearTimeout(timer);
